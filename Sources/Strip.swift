@@ -13,7 +13,7 @@ final class Strip {
     static let height: CGFloat = 26
 
     private let panel: NSPanel
-    private let bar = StripBar()
+    let bar = StripBar()
     private var timer: Timer?
     private var pid: pid_t = 0
     private var window: AXUIElement?
@@ -142,12 +142,29 @@ final class Strip {
         panel.orderFrontRegardless()
     }
 
+    /// Opens a menu, and keeps going like a real menu bar: while one is open, pointing at another title
+    /// closes it and opens that one straight away, with no extra click.
     private func open(_ index: Int, from button: NSView) {
-        guard let item = menuBar?.items[safe: index] else { return }
-        let mirror = MirrorMenu(source: item.element)
-        let menu = mirror.menu()
-        withExtendedLifetime(mirror) {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -2), in: button)
+        var next: Int? = index
+        while let i = next, let item = menuBar?.items[safe: i], let button = bar.button(i) {
+            next = nil
+            bar.markOpen(i)
+            let mirror = MirrorMenu(source: item.element)
+            let menu = mirror.menu()
+            // Menus run their own event loop; a timer in that loop's mode watches where the pointer is.
+            let watch = Timer(timeInterval: 0.025, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    if let j = Strip.shared.bar.index(at: NSEvent.mouseLocation), j != i {
+                        next = j
+                        menu.cancelTrackingWithoutAnimation()
+                    }
+                }
+            }
+            RunLoop.main.add(watch, forMode: .eventTracking)
+            withExtendedLifetime(mirror) {
+                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -2), in: button)
+            }
+            watch.invalidate()
         }
         bar.endOpen()
     }
@@ -273,6 +290,18 @@ final class StripBar: NSView {
     }
 
     func endOpen() { buttons.forEach { $0.isOpen = false } }
+
+    func button(_ i: Int) -> StripButton? { buttons[safe: i] }
+
+    func markOpen(_ i: Int) { buttons.enumerated().forEach { $0.element.isOpen = $0.offset == i } }
+
+    /// The menu title under a point on screen, if any.
+    func index(at point: NSPoint) -> Int? {
+        buttons.firstIndex { button in
+            guard let window = button.window else { return false }
+            return window.convertToScreen(button.convert(button.bounds, to: nil)).contains(point)
+        }
+    }
 
     // Dragging the empty part of the strip moves the window, like a title bar.
     private var dragStart: NSPoint?
