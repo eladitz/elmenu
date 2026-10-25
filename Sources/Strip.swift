@@ -289,11 +289,25 @@ final class StripBar: NSView {
         applyTint()
     }
 
-    func endOpen() { buttons.forEach { $0.isOpen = false } }
+    /// After the menus close: no title is open, and only the one under the pointer (if any) is lit.
+    func endOpen() {
+        let under = index(at: NSEvent.mouseLocation)
+        for (i, button) in buttons.enumerated() {
+            button.isOpen = false
+            button.hovering = i == under
+        }
+    }
 
     func button(_ i: Int) -> StripButton? { buttons[safe: i] }
 
-    func markOpen(_ i: Int) { buttons.enumerated().forEach { $0.element.isOpen = $0.offset == i } }
+    /// While a menu is open, only its title is lit. (The menu takes every mouse movement while it's open,
+    /// so a title never hears that the pointer has left it; its hover highlight is cleared here instead.)
+    func markOpen(_ i: Int) {
+        for (j, button) in buttons.enumerated() {
+            button.isOpen = j == i
+            button.hovering = false
+        }
+    }
 
     /// The menu title under a point on screen, if any.
     func index(at point: NSPoint) -> Int? {
@@ -325,7 +339,7 @@ final class StripButton: NSView, Inked {
     var isOpen = false { didSet { needsDisplay = true } }
     var ink: NSColor = .labelColor { didSet { label.textColor = ink; needsDisplay = true } }
     private let label: NSTextField
-    private var hovering = false { didSet { needsDisplay = true } }
+    var hovering = false { didSet { needsDisplay = true } }
 
     init(title: String, bold: Bool) {
         label = NSTextField(labelWithString: title)
