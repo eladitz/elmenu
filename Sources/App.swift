@@ -28,6 +28,11 @@ final class Settings {
         get { Placement(rawValue: d.string(forKey: "placement") ?? "") ?? .above }
         set { d.set(newValue.rawValue, forKey: "placement") }
     }
+    /// Strip in the window's own title-bar colour (needs Screen Recording).
+    var matchColours: Bool {
+        get { d.bool(forKey: "matchColours") && WindowColour.allowed }
+        set { d.set(newValue, forKey: "matchColours") }
+    }
     var ignored: [String] {
         get { d.stringArray(forKey: "ignored") ?? [] }
         set { d.set(newValue, forKey: "ignored") }
@@ -106,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = add("Above the Title Bar", #selector(placeAbove), on: Settings.shared.placement == .above)
         _ = add("Under the Title Bar", #selector(placeUnder), on: Settings.shared.placement == .under)
         menu.addItem(.separator())
+        _ = add(WindowColour.allowed || !UserDefaults.standard.bool(forKey: "matchColours") ? "Match Window Colours" : "Match Window Colours (allow Screen Recording…)",
+                #selector(toggleColours), on: Settings.shared.matchColours)
         if let app = NSWorkspace.shared.frontmostApplication, let id = app.bundleIdentifier, id != Bundle.main.bundleIdentifier {
             let i = add("Not for \(app.localizedName ?? "This App")", #selector(toggleIgnore(_:)), on: Settings.shared.ignored.contains(id))
             i.representedObject = id
@@ -134,6 +141,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var list = Settings.shared.ignored
         if let i = list.firstIndex(of: id) { list.remove(at: i) } else { list.append(id) }
         Settings.shared.ignored = list
+        Strip.shared.refresh()
+    }
+
+    @objc private func toggleColours() {
+        let on = !Settings.shared.matchColours
+        Settings.shared.matchColours = on
+        if on && !WindowColour.allowed {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Let Elmenu see window colours"
+            alert.informativeText = "To match each app's colours, Elmenu looks at a thin strip of the window's title bar and averages its colour. macOS calls that Screen Recording: switch Elmenu on there, then choose Quit & Reopen when macOS offers it. Nothing is saved or sent anywhere."
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                CGRequestScreenCaptureAccess()
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+            }
+        }
         Strip.shared.refresh()
     }
 

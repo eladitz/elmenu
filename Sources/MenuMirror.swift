@@ -77,13 +77,20 @@ final class MirrorMenu: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) { fill(menu) }
 
+    private static let wanted = [kAXTitleAttribute, kAXEnabledAttribute, kAXMenuItemMarkCharAttribute, kAXMenuItemCmdCharAttribute,
+                                 kAXMenuItemCmdModifiersAttribute, kAXMenuItemCmdGlyphAttribute, kAXChildrenAttribute] as CFArray
+
+    /// Only this menu's own items: each item's details in one request, and submenus left empty until you
+    /// reach them (reading a whole menu tree up front is what made opening a menu slow).
     private func fill(_ menu: NSMenu) {
         menu.removeAllItems()
         keep = []
-        // The item's child is the AXMenu; its children are the AXMenuItems.
         guard let axMenu = AX.children(source).first else { return }
         for element in AX.children(axMenu) {
-            let title = AX.string(element, kAXTitleAttribute) ?? ""
+            var raw: CFArray?
+            guard AXUIElementCopyMultipleAttributeValues(element, Self.wanted, AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
+                  let values = raw as? [Any], values.count == 7 else { continue }
+            let title = values[0] as? String ?? ""
             if title.isEmpty {
                 // Untitled, disabled items are separators; untitled enabled ones are custom views we can't show.
                 if !(menu.items.last?.isSeparatorItem ?? true) { menu.addItem(.separator()) }
@@ -92,20 +99,23 @@ final class MirrorMenu: NSObject, NSMenuDelegate {
             let item = NSMenuItem(title: title, action: #selector(choose(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = element
-            item.isEnabled = AX.bool(element, kAXEnabledAttribute)
-            if let mark = AX.string(element, kAXMenuItemMarkCharAttribute), !mark.isEmpty { item.state = .on }
-            if let key = AX.string(element, kAXMenuItemCmdCharAttribute), !key.isEmpty {
+            item.isEnabled = values[1] as? Bool ?? true
+            if let mark = values[2] as? String, !mark.isEmpty { item.state = .on }
+            let modifiers = values[4] as? Int ?? 0
+            if let key = values[3] as? String, !key.isEmpty {
                 item.keyEquivalent = key.lowercased()
-                item.keyEquivalentModifierMask = Self.modifiers(AX.copy(element, kAXMenuItemCmdModifiersAttribute) as? Int ?? 0, key: key)
-            } else if let glyph = AX.copy(element, kAXMenuItemCmdGlyphAttribute) as? Int, let key = Self.glyphKey(glyph) {
+                item.keyEquivalentModifierMask = Self.modifiers(modifiers, key: key)
+            } else if let glyph = values[5] as? Int, let key = Self.glyphKey(glyph) {
                 item.keyEquivalent = key
-                item.keyEquivalentModifierMask = Self.modifiers(AX.copy(element, kAXMenuItemCmdModifiersAttribute) as? Int ?? 0, key: key)
+                item.keyEquivalentModifierMask = Self.modifiers(modifiers, key: key)
             }
-            // A submenu: filled when it opens.
-            if let child = AX.children(element).first, (AX.string(child, kAXRoleAttribute) ?? "") == kAXMenuRole {
+            if let children = values[6] as? [AXUIElement], !children.isEmpty {
                 let mirror = MirrorMenu(source: element)
                 keep.append(mirror)
-                item.submenu = mirror.menu()
+                let submenu = NSMenu()
+                submenu.autoenablesItems = false
+                submenu.delegate = mirror   // filled by menuNeedsUpdate when it opens
+                item.submenu = submenu
                 item.action = nil
             }
             menu.addItem(item)
