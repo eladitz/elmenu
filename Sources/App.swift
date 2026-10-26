@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { Donation.recordDay() }
         }
+        if CommandLine.arguments.contains("--tour") { Tour.run(); return }
         if AX.trusted { begin() } else { askPermission() }
     }
 

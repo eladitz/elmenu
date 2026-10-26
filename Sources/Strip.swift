@@ -83,7 +83,7 @@ final class Strip {
     /// Finds the front app's focused window and puts the strip on it, or hides it when there's none.
     private func update(force: Bool) {
         guard running, AX.trusted, let app = NSWorkspace.shared.frontmostApplication,
-              app.bundleIdentifier != Bundle.main.bundleIdentifier, !Settings.shared.ignored.contains(app.bundleIdentifier ?? "") else {
+              Tour.running || app.bundleIdentifier != Bundle.main.bundleIdentifier, !Settings.shared.ignored.contains(app.bundleIdentifier ?? "") else {
             return hide()
         }
         let element = AXUIElementCreateApplication(app.processIdentifier)
@@ -193,6 +193,22 @@ final class Strip {
         let moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, p) == .success
         AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, s)
         return moved
+    }
+
+    /// For the tour: open these menus one after another, each for `seconds`, as if the pointer slid across.
+    func tourMenus(_ indices: [Int], seconds: Double) {
+        for i in indices {
+            guard let item = menuBar?.items[safe: i], let button = bar.button(i) else { continue }
+            bar.markOpen(i)
+            let mirror = MirrorMenu(source: item.element)
+            let menu = mirror.menu()
+            let close = Timer(timeInterval: seconds, repeats: false) { _ in
+                MainActor.assumeIsolated { menu.cancelTrackingWithoutAnimation() }
+            }
+            RunLoop.main.add(close, forMode: .eventTracking)
+            withExtendedLifetime(mirror) { menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -2), in: button) }
+        }
+        bar.endOpen()
     }
 
     // MARK: Window buttons and dragging
