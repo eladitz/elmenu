@@ -132,7 +132,23 @@ final class Strip {
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: window.midX, y: window.maxY - 1)) } ?? NSScreen.main!
         let inset: CGFloat = 8
         var strip = CGRect(x: window.minX + inset, y: window.maxY, width: window.width - inset * 2, height: Self.height)
-        let above = Settings.shared.placement == .above && strip.maxY <= screen.visibleFrame.maxY
+        var above = Settings.shared.placement == .above && strip.maxY <= screen.visibleFrame.maxY
+        // Against the top of the screen: move the window down (and make it shorter if it would run off the
+        // bottom) so the strip has its own room, rather than covering the window's tabs. Not mid-drag, so it
+        // never fights you; the strip sits under the title bar until you let go.
+        if Settings.shared.placement == .above && !above && !fast, let window = self.window {
+            let visible = screen.visibleFrame
+            let room = strip.maxY - visible.maxY
+            var moved = frame
+            moved.origin.y += room
+            let overflow = (top - visible.minY) - moved.maxY   // Accessibility's y runs down
+            if overflow < 0 { moved.size.height += overflow }
+            if moved.height > 200, setFrame(window, moved) {
+                lastFrame = .null   // re-place on the next look, at the window's new spot
+                above = true
+                strip.origin.y = (top - moved.minY)
+            }
+        }
         if !above {
             // No room above (or chosen): just under the title bar, over the top of the window.
             strip.origin.y = window.maxY - 28 - Self.height
@@ -167,6 +183,16 @@ final class Strip {
             watch.invalidate()
         }
         bar.endOpen()
+    }
+
+    /// Moves and sizes the window (Accessibility coordinates); false if the app refused.
+    private func setFrame(_ window: AXUIElement, _ frame: CGRect) -> Bool {
+        var size = frame.size, origin = frame.origin
+        guard let s = AXValueCreate(.cgSize, &size), let p = AXValueCreate(.cgPoint, &origin) else { return false }
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, s)
+        let moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, p) == .success
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, s)
+        return moved
     }
 
     // MARK: Window buttons and dragging
